@@ -1,0 +1,16 @@
+.env
+.env.*
+config/config.yaml
+config/local.yaml
+src/strategy/private/
+*strategy.private*
+logs/
+data/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+dist/
+dashboard/node_modules/
+dashboard/dist/
