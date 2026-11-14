@@ -1,11 +1,54 @@
-# Copy to config/config.yaml for local runs. Do not commit the copy.
-mode: paper
+# Example settings. Placeholders only - safe to commit.
+#
+# On first run the bot copies this to config/config.yaml, which is git-ignored.
+# Change that copy (by hand, or with:  python run.py settings).
+# Put real strategy values there, never here.
 
-broker: amp
-instrument: MES
+mode: paper              # paper only; no live trading is built
+
+market:
+  symbol: BTC-USD
+  source: coinbase       # coinbase | kraken  (both free, no API key)
+  bar_seconds: 60        # candle size the strategy sees: 60, 300, 900 or 3600
+  poll_seconds: 10       # how often to ask the exchange for prices
+
+session:
+  start: now             # "now", or HH:MM (24-hour) to wait until then
+  end: "23:59"           # HH:MM; the bot closes its position and stops here
+  timezone: ""           # blank = this computer's clock, or e.g. America/New_York
+  flatten_at_end: true
+
+account:
+  starting_cash: 10000   # paper USD
+  position_size_usd: 1000
+  fee_bps: 10            # 10 = 0.10% per fill. Retail taker fees are often 0.25%-1.2%; use yours.
+  slippage_bps: 2        # fills are this much worse than the quoted price
+
+strategy:
+  name: sma_cross        # sma_cross | rsi_reversion | example | custom
+  file: ""               # for custom: path to your private .py (see src/strategy/private_template.py)
+  params: {}             # blank uses the strategy's defaults, e.g. {fast: 9, slow: 21}
+
+exits:
+  stop_loss_pct: 0       # close if price moves this % against the position (0 = off)
+  take_profit_pct: 0     # close if price moves this % in favour (0 = off)
 
 risk:
-  max_position: 1
-  max_daily_loss: 0
-  max_trades_per_day: 10
-  kill_switch: true
+  max_position_usd: 1000
+  max_daily_loss_usd: 200    # 0 = no limit
+  max_trades_per_day: 10     # new entries; exits are always allowed
+  allow_short: false
+  kill_switch: true          # stop for the day and close out when the loss limit is hit
+  max_data_age_seconds: 60   # refuse new entries on a stale price
+
+news:                    # Forex Factory economic calendar
+  enabled: true
+  currencies: [USD]
+  impact: [High]         # High, Medium, Low
+  minutes_before: 15     # no new entries this long before an event ...
+  minutes_after: 15      # ... or after it
+  flatten_before: false  # also close any open position during that window
+
+dashboard:
+  port: 8765             # served on 127.0.0.1 only
+  open_browser: true

@@ -1,0 +1,50 @@
+[
+ {
+  "title": "FOMC Member Bowman Speaks",
+  "country": "USD",
+  "date": "2026-11-09T08:40:00-05:00",
+  "impact": "Low",
+  "forecast": "",
+  "previous": ""
+ },
+ {
+  "title": "Final Wholesale Inventories m/m",
+  "country": "USD",
+  "date": "2026-11-09T10:00:00-05:00",
+  "impact": "Low",
+  "forecast": "0.6%",
+  "previous": "0.6%"
+ },
+ {
+  "title": "FOMC Member Goolsbee Speaks",
+  "country": "USD",
+  "date": "2026-11-09T10:00:00-05:00",
+  "impact": "Low",
+  "forecast": "",
+  "previous": ""
+ },
+ {
+  "title": "FOMC Member Barkin Speaks",
+  "country": "USD",
+  "date": "2026-11-09T12:15:00-05:00",
+  "impact": "Low",
+  "forecast": "",
+  "previous": ""
+ },
+ {
+  "title": "FOMC Member Waller Speaks",
+  "country": "USD",
+  "date": "2026-11-10T04:00:00-05:00",
+  "impact": "Medium",
+  "forecast": "",
+  "previous": ""
+ },
+ {
+  "title": "NFIB Small Business Index",
+  "country": "USD",
+  "date": "2026-11-10T06:00:00-05:00",
+  "impact": "Low",
+  "forecast": "98.0",
+  "previous": "97.9"
+ }
+]
