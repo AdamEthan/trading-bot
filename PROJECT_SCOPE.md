@@ -3,6 +3,12 @@
 Status: draft v0.1 (2026-11-14)
 Owners: Adam, plus a friend collaborating
 
+## 0. Current step (v0.2, 2026-11-14): Bitcoin paper app
+
+Before the AMP/Rithmic account exists, the bot paper-trades BTC-USD on free public data (Coinbase, Kraken) so the strategy, risk, logging, and dashboard pieces can be built and proven now. It runs locally, keeps strategy settings in git-ignored files, and every run can be rechecked with `python run.py verify`. See README.md for usage.
+
+The components below are the same ones the futures bot will use; only the data feed and broker adapter change when Rithmic access arrives.
+
 ## 1. Goal
 
 Build a first automated trading bot that executes roughly 5-10 trades per day through AMP Futures, using Rithmic for market data and orders. Start with paper trading and move to small live size only after it proves stable.

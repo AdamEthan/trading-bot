@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paper Trading Desk</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:,">
+</head>
+<body>
+<main class="wrap">
+  <header class="top">
+    <div>
+      <p class="kicker" id="kicker">Paper trading</p>
+      <h1 id="title">Paper trading desk</h1>
+      <p class="sub"><span class="chip" id="state" data-state="starting"><span class="dot" aria-hidden="true"></span><span id="state-text">Connecting…</span></span>
+        <span id="session" class="muted"></span></p>
+    </div>
+    <div class="actions">
+      <label class="small muted" for="run">Run</label>
+      <select id="run" class="btn" aria-label="Choose a run"></select>
+      <a class="btn" href="/settings">Settings</a>
+      <button id="kill" class="btn danger" type="button" hidden>Kill switch</button>
+    </div>
+  </header>
+
+  <p class="banner">Paper money only. Prices are live from a public exchange feed; no order is sent anywhere. Every number below comes from the log files in the run folder.</p>
+
+  <section class="stats" aria-label="Account summary">
+    <article class="tile hero"><span class="label">Day P&amp;L (after fees)</span><strong class="value" id="pnl">–</strong><span class="note" id="pnl-note"></span></article>
+    <article class="tile"><span class="label">Equity</span><strong class="value" id="equity">–</strong><span class="note" id="equity-note"></span></article>
+    <article class="tile"><span class="label">Position</span><strong class="value" id="position">–</strong><span class="note" id="position-note"></span></article>
+    <article class="tile"><span class="label">BTC price</span><strong class="value" id="price">–</strong><span class="note" id="price-note"></span></article>
+    <article class="tile"><span class="label">Entries today</span><strong class="value" id="trades">–</strong><div class="meter" id="trades-meter"><span></span></div></article>
+    <article class="tile"><span class="label">Daily loss used</span><strong class="value" id="loss">–</strong><div class="meter" id="loss-meter"><span></span></div></article>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2 id="price-title">Price and trades</h2>
+      <div class="legend" aria-hidden="true"><span><i class="key-line"></i>Close</span><span><i class="key-buy"></i>Buy</span><span><i class="key-sell"></i>Sell</span></div>
+    </div>
+    <div class="chart" id="price-chart"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Day P&amp;L over time</h2><span class="small muted">USD, marked to market after each bar</span></div>
+    <div class="chart" id="equity-chart"></div>
+  </section>
+
+  <section class="grid2">
+    <article class="panel">
+      <h2>Last signal</h2>
+      <p class="signal" id="signal">–</p>
+      <p class="small muted" id="signal-reason"></p>
+      <dl class="kv" id="strategy"></dl>
+      <div id="alerts"></div>
+    </article>
+    <article class="panel">
+      <div class="panel-head"><h2>Economic calendar</h2><span class="small muted">Forex Factory</span></div>
+      <div id="blackout"></div>
+      <ul class="news" id="news"></ul>
+    </article>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Trades</h2><span class="small muted">from trades.csv</span></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Time</th><th>Side</th><th class="num">Qty (BTC)</th><th class="num">Market</th><th class="num">Fill</th><th class="num">Fee</th><th class="num">Realized</th><th class="num">Cash after</th><th>Reason</th></tr></thead>
+        <tbody id="trade-rows"><tr><td colspan="9" class="muted">No trades yet.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Event log</h2><span class="small muted">newest first, from events.jsonl</span></div>
+    <ul class="log" id="log"></ul>
+  </section>
+
+  <footer>
+    <p>Run folder: <code id="run-dir">–</code></p>
+    <p>Recheck this run against the exchange: <code id="verify-cmd">python run.py verify logs/&lt;run&gt;</code></p>
+  </footer>
+</main>
+<script src="/static/chart.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -2,10 +2,11 @@
 .env.*
 config/config.yaml
 config/local.yaml
+config/*.tmp
 src/strategy/private/
 *strategy.private*
-logs/
-data/
+/logs/
+/data/
 __pycache__/
 *.py[cod]
 .venv/
