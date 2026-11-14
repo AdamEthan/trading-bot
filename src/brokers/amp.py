@@ -1,1 +1,1 @@
-"""AMP adapter stub. No API calls yet."""
+"""AMP account through Rithmic. No API calls yet."""

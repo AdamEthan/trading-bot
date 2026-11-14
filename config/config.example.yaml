@@ -1,7 +1,7 @@
 # Copy to config/config.yaml for local runs. Do not commit the copy.
 mode: paper
 
-broker: example
+broker: amp
 instrument: MES
 
 risk:

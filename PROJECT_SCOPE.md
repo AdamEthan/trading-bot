@@ -5,7 +5,7 @@ Owners: Adam, plus a friend collaborating
 
 ## 1. Goal
 
-Build a first automated trading bot that executes roughly 5-10 trades per day through a futures broker (Ironbeam or AMP), starting with paper trading and moving to small live size only after it proves stable.
+Build a first automated trading bot that executes roughly 5-10 trades per day through AMP Futures, using Rithmic for market data and orders. Start with paper trading and move to small live size only after it proves stable.
 
 Success for v1 means:
 - The bot runs a full trading day unattended in paper mode with no crashes or duplicate orders.
@@ -18,18 +18,19 @@ Success for v1 means:
 - Multi-broker support, a UI, or multi-strategy portfolio management.
 - Machine learning. Start with rule-based logic.
 
-## 3. Key decision: broker
+## 3. Broker
 
-| Question | Ironbeam | AMP |
-|---|---|---|
-| API type and docs quality | TO VERIFY | TO VERIFY |
-| Paper/sim environment available | TO VERIFY | TO VERIFY |
-| Market data cost and access | TO VERIFY | TO VERIFY |
-| Commissions and platform fees at 5-10 trades/day | TO VERIFY | TO VERIFY |
-| Account minimums and funding | TO VERIFY | TO VERIFY |
-| Language SDKs / community examples | TO VERIFY | TO VERIFY |
+AMP Futures. The bot reaches the account through Rithmic, which AMP provisions.
 
-Action: fill in this table from each broker's official docs, then decide. The broker adapter is isolated (see section 5) so the choice is reversible.
+AMP's own pages list these Rithmic interfaces for an AMP user id:
+
+- **R|API and R|API+**: C++ and .NET libraries. Market data, orders, fills, and (with API+) custom bars plus server-side brackets and OCOs.
+- **R|FIX API**: order entry only. Market data still needs R|API.
+- **R|Diamond API**: colocated, sub-millisecond. Out of scope for 5-10 trades a day.
+
+**R|Protocol API** (Protocol Buffers, usable from Python) is Rithmic's language-neutral interface to that same platform. AMP's site does not name it. A Python bot would request it from Rithmic, pass their conformance test, then log in with the AMP Rithmic user id.
+
+Fees AMP publishes for the API add-on: $100 per month per user id, plus the $25 Rithmic user id, plus $0.10 per contract filled on live trades. Market data is billed separately. Confirm account minimums and the paper login when the account is opened. Production API use still requires Rithmic's test system and a conformance review.
 
 ## 4. Architecture
 
@@ -39,7 +40,7 @@ Components, kept small and separable:
 2. **Strategy**: pure function from market state to a signal. No broker or network calls inside it. Its rules and parameters are loaded from private config (see section 7).
 3. **Risk manager**: gatekeeper between signals and orders. Enforces max position size, max daily loss, max trades/day, and a kill switch.
 4. **Execution**: turns approved signals into orders, tracks order state, handles rejects, partial fills, and retries safely (idempotent).
-5. **Broker adapter**: the only code that knows Ironbeam or AMP specifics.
+5. **Broker adapter**: the only code that knows AMP and Rithmic specifics.
 6. **State and logging**: persistent record of positions, orders, and decisions; structured logs.
 7. **Backtester / paper runner**: same strategy code, simulated or paper broker.
 8. **Monitoring**: alerts on errors, disconnects, loss limits hit, or unexpected positions.
@@ -55,7 +56,7 @@ trading-bot/
     strategy/      # strategy interface + implementations
     risk/          # risk checks and kill switch
     execution/     # order management
-    brokers/       # base interface, ironbeam.py / amp.py, paper.py
+    brokers/       # base interface, amp.py (Rithmic), paper.py
     backtest/
     utils/
   config/
@@ -69,7 +70,7 @@ trading-bot/
 | # | Milestone | Done when |
 |---|---|---|
 | 0 | Setup | Repo structure, `.gitignore` for secrets, language/tooling chosen, CI runs tests |
-| 1 | Broker decision | Section 3 table filled in, account and API access requested |
+| 1 | Broker access | AMP account opened, Rithmic user id requested, Rithmic dev kit and conformance started |
 | 2 | Data and backtest | Historical data loads; backtester runs a placeholder strategy end to end |
 | 3 | Broker adapter | Can authenticate, stream data, place and cancel an order in the sandbox/paper environment |
 | 4 | Risk and execution | Risk limits and kill switch covered by tests; order state machine handles reject/partial fill/disconnect |
@@ -105,7 +106,7 @@ The strategy rules are private and must not appear in this repo, in Claude conve
 
 ## 10. Suggested first steps
 
-1. Fill in the broker comparison table and pick a broker.
+1. Open the AMP account and request Rithmic API access (section 3).
 2. Create the repo skeleton and `.gitignore` (section 5, section 7).
 3. Answer the open questions in section 9.
 4. Build the backtester and broker adapter in parallel (you and your friend can split these).
