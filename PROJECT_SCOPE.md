@@ -9,6 +9,8 @@ Before the AMP/Rithmic account exists, the bot paper-trades BTC-USD on free publ
 
 The components below are the same ones the futures bot will use; only the data feed and broker adapter change when Rithmic access arrives.
 
+Milestone 2 has started: `python run.py backtest` replays CME futures (MNQ first) from Databento one-second OHLCV files through the same strategy interface and risk manager, with tick-based fills, per-contract commission, front-month rolls, and logs that `verify` rechecks against the data.
+
 ## 1. Goal
 
 Build a first automated trading bot that executes roughly 5-10 trades per day through AMP Futures, using Rithmic for market data and orders. Start with paper trading and move to small live size only after it proves stable.

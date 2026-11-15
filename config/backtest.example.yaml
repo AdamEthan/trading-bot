@@ -1,0 +1,48 @@
+# Backtest settings for futures. Placeholders only - safe to commit.
+#
+# On first use the bot copies this to config/backtest.yaml, which is git-ignored.
+# Put real strategy values there, never here.
+#
+#   python run.py backtest --data path/to/GLBX-....zip
+
+data:
+  file: ""               # Databento OHLCV download: the .zip, its .csv.zst, or a .csv. --data overrides it.
+  root: MNQ              # product; the front month is picked by volume each trade date
+  contract: ""           # or force one contract for the whole file, e.g. MNQZ6
+  start: ""              # optional YYYY-MM-DD: only trade from this date ...
+  end: ""                # ... to this date (inclusive). Bars before start still warm up indicators.
+
+instrument:              # 0 = built-in spec for the root (MNQ: 0.25 tick, $2 per point)
+  tick_size: 0
+  point_value: 0
+
+bar_seconds: 60          # candle size the strategy sees; a multiple of the file's candle size
+
+session:                 # when the strategy may trade; indicators also see bars outside it
+  timezone: America/New_York
+  start: "09:30"         # HH:MM, 24-hour
+  end: "15:55"           # HH:MM; earlier than start means an overnight session
+  flatten_at_end: true   # close any position at the end of each session
+
+account:
+  starting_cash: 10000
+  contracts: 1                    # per entry
+  commission_per_contract: 0.62   # USD per contract per side, all-in. Placeholder: use your broker's real rate.
+  slippage_ticks: 1               # market and stop fills are this many ticks worse
+
+strategy:
+  name: sma_cross        # sma_cross | rsi_reversion | example | custom
+  file: ""               # for custom: path to your private .py (see src/strategy/private_template.py)
+  params: {}             # blank uses the strategy's defaults, e.g. {fast: 9, slow: 21}
+
+exits:
+  stop_loss_points: 0    # close if price moves this many points against the position (0 = off)
+  take_profit_points: 0  # close at this many points in favour (0 = off)
+  target_fill: through   # through = price must trade 1 tick past the target; touch = reaching it is enough
+
+risk:
+  max_contracts: 1
+  max_daily_loss_usd: 200    # per session; 0 = no limit
+  max_trades_per_day: 10     # new entries per session; exits are always allowed
+  allow_short: true
+  kill_switch: true          # stop for the session and close out when the loss limit is hit

@@ -2,6 +2,7 @@
 .env.*
 config/config.yaml
 config/local.yaml
+config/backtest.yaml
 config/*.tmp
 src/strategy/private/
 *strategy.private*

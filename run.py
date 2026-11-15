@@ -7,6 +7,7 @@
   python run.py dashboard           browse past runs
   python run.py verify logs/<run>   recheck a run's trades against the exchange
   python run.py check               test the data feeds and the privacy setup
+  python run.py backtest --data F   test a strategy on historical futures data (Databento CSV)
 """
 from __future__ import annotations
 
@@ -101,15 +102,90 @@ def cmd_serve(args, page: str) -> int:
     return 0
 
 
+def _is_backtest(run_dir: Path) -> bool:
+    import json
+    try:
+        return json.loads((run_dir / "run.json").read_text(encoding="utf-8")).get("mode") == "backtest"
+    except (OSError, ValueError):
+        return False
+
+
 def cmd_verify(args) -> int:
     from src.verify import verify
 
     run_dir = Path(args.run_dir)
     if not run_dir.is_absolute() and not run_dir.exists():
         run_dir = LOGS / run_dir
+    if _is_backtest(run_dir):
+        from src.backtest.verify import verify_backtest
+        ok, report = verify_backtest(run_dir, data=Path(args.data) if args.data else None)
+        print(report)
+        return 0 if ok else 2
     ok, report = verify(run_dir, online=not args.offline)
     print(report)
     return 0 if ok else 2
+
+
+def parse_params(text: str | None) -> dict:
+    """--params fast=5,slow=20 -> {"fast": "5", "slow": "20"}; the strategy converts the types."""
+    out = {}
+    for part in (text or "").split(","):
+        if part.strip():
+            key, sep, value = part.partition("=")
+            if not sep:
+                sys.exit(f"--params: expected name=value, got {part!r}")
+            out[key.strip()] = value.strip()
+    return out
+
+
+def cmd_backtest(args) -> int:
+    from src.backtest import config as bt_config
+    from src.backtest.runner import Backtest, format_summary
+    from src.data.databento import DataFileError
+
+    if bt_config.ensure_local_config(args.backtest_config):
+        print(f"Created {args.backtest_config} from the example.")
+    overrides: dict = {"data": {}, "strategy": {}}
+    if args.data:
+        overrides["data"]["file"] = str(args.data)
+    for key in ("contract", "start", "end"):
+        if getattr(args, key):
+            overrides["data"][key] = getattr(args, key)
+    if args.strategy:
+        overrides["strategy"]["name"] = args.strategy
+    if args.strategy_file:
+        overrides["strategy"] = {**overrides["strategy"], "name": "custom", "file": str(args.strategy_file)}
+    if args.params:
+        overrides["strategy"]["params"] = parse_params(args.params)
+    if args.bar_seconds:
+        overrides["bar_seconds"] = args.bar_seconds
+    cfg, errors = bt_config.load(args.backtest_config, overrides)
+    if errors:
+        print(f"Problems in {args.backtest_config} (or the command-line options):")
+        for err in errors:
+            print(f"  - {err}")
+        return 1
+    if not cfg["data"]["file"]:
+        print("No data file. Pass one with --data, or set data.file in config/backtest.yaml.")
+        return 1
+    data = Path(cfg["data"]["file"]).expanduser()
+    if not data.is_absolute() and not data.exists():
+        data = ROOT / data
+    name = f"{datetime.now().strftime('%Y-%m-%d_%H%M%S')}_{cfg['strategy']['name']}"
+    run_dir = LOGS / "backtests" / name
+    try:
+        result = Backtest(cfg, data, run_dir, root_dir=ROOT, quiet=args.quiet).run()
+    except (DataFileError, ValueError) as exc:
+        print(f"Backtest stopped: {exc}")
+        return 1
+    print()
+    print(format_summary(result.summary))
+    print(f"\nReport: {run_dir / 'report.html'}")
+    shown = run_dir.relative_to(ROOT).as_posix() if run_dir.is_relative_to(ROOT) else run_dir
+    print(f"Logs:   {run_dir}  -  recheck with: python run.py verify {shown}")
+    if args.open:
+        webbrowser.open((run_dir / "report.html").as_uri())
+    return 0
 
 
 def cmd_check(args) -> int:
@@ -161,6 +237,20 @@ def main(argv=None) -> int:
     p_verify = sub.add_parser("verify", help="recheck a run's logs")
     p_verify.add_argument("run_dir", help="folder under logs/, e.g. logs/2026-11-14_090000")
     p_verify.add_argument("--offline", action="store_true", help="skip the exchange price checks")
+    p_verify.add_argument("--data", help="backtests: the data file it ran on (default: the path it was run with)")
+    p_bt = sub.add_parser("backtest", help="test a strategy on historical futures data")
+    p_bt.add_argument("--data", type=Path, help="Databento OHLCV download: .zip, .csv.zst or .csv")
+    p_bt.add_argument("--backtest-config", type=Path, default=ROOT / "config" / "backtest.yaml",
+                      help="backtest settings (default: config/backtest.yaml)")
+    p_bt.add_argument("--strategy", help="strategy name, overriding the config (sma_cross, rsi_reversion, example)")
+    p_bt.add_argument("--strategy-file", type=Path, help="your own strategy .py file")
+    p_bt.add_argument("--params", help="strategy parameters, e.g. fast=5,slow=20")
+    p_bt.add_argument("--bar-seconds", type=int, help="bar size the strategy sees, e.g. 60 or 300")
+    p_bt.add_argument("--contract", help="trade one contract only, e.g. MNQZ6 (default: front month by volume)")
+    p_bt.add_argument("--start", help="first session to trade, YYYY-MM-DD")
+    p_bt.add_argument("--end", help="last session to trade, YYYY-MM-DD")
+    p_bt.add_argument("--quiet", action="store_true", help="print only the summary")
+    p_bt.add_argument("--open", action="store_true", help="open the report in a browser when done")
     sub.add_parser("check", help="test data feeds and privacy setup")
 
     args = parser.parse_args(argv)
@@ -174,6 +264,8 @@ def main(argv=None) -> int:
         return cmd_serve(args, "")
     if args.command == "verify":
         return cmd_verify(args)
+    if args.command == "backtest":
+        return cmd_backtest(args)
     return cmd_check(args)
 
 

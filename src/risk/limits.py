@@ -1,4 +1,4 @@
-"""Enforce max position, max daily loss, max trades per day, and the kill switch.
+"""Enforce max position (dollars or size), max daily loss, max trades per day, and the kill switch.
 
 Orders that only shrink the position are always allowed, so the bot can
 always get flat. Everything that adds risk goes through `check`.
@@ -16,7 +16,8 @@ class Decision:
 
 class RiskManager:
     def __init__(self, cfg: dict):
-        self.max_position_usd = float(cfg["max_position_usd"])
+        self.max_position_usd = float(cfg.get("max_position_usd") or 0)  # 0 = no dollar cap
+        self.max_position_qty = float(cfg.get("max_position_qty") or 0)  # 0 = no size cap (futures: contracts)
         self.max_daily_loss_usd = float(cfg["max_daily_loss_usd"])
         self.max_trades = int(cfg["max_trades_per_day"])
         self.allow_short = bool(cfg["allow_short"])
@@ -46,8 +47,10 @@ class RiskManager:
             return Decision(False, f"daily loss limit reached (${self.max_daily_loss_usd:,.2f})")
         if after < 0 and not self.allow_short:
             return Decision(False, "short selling is disabled")
-        if abs(after) * price > self.max_position_usd * 1.0001:
+        if self.max_position_usd and abs(after) * price > self.max_position_usd * 1.0001:
             return Decision(False, f"position would be ${abs(after) * price:,.2f}, over the ${self.max_position_usd:,.2f} limit")
+        if self.max_position_qty and abs(after) > self.max_position_qty + 1e-9:
+            return Decision(False, f"position would be {abs(after):g}, over the {self.max_position_qty:g} limit")
         if data_age > self.max_data_age:
             return Decision(False, f"price is {data_age:.0f}s old (limit {self.max_data_age:.0f}s)")
         if news:
