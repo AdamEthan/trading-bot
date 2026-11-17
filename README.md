@@ -107,7 +107,7 @@ python run.py backtest --data ... --strategy-file src/strategy/private/my_strate
 python run.py verify logs/backtests/<run>
 ```
 
-**Getting data:** request OHLCV in **CSV** encoding (not DBN) from the `GLBX.MDP3` dataset. A parent symbol such as `MNQ.FUT` with `ohlcv-1s` gives every contract month at one-second resolution. Pass the `.zip` exactly as downloaded, the `.csv.zst` inside it, or a plain `.csv`. Keep data files in `data/` or anywhere outside the repo; `data/` is git-ignored.
+**Getting data:** request OHLCV in **CSV** encoding (not DBN) from the `GLBX.MDP3` dataset. A parent symbol such as `MNQ.FUT` with `ohlcv-1s` gives every contract month at one-second resolution. Pass the `.zip` exactly as downloaded, the `.csv.zst` inside it, or a plain `.csv`. For long periods, download with the split option set to month and pass all the files, or the folder holding them (`--data data/mnq-2026/`); they are read in date order as one dataset, and files that overlap are refused. Keep data files in `data/` or anywhere outside the repo; `data/` is git-ignored.
 
 **Settings** are in `config/backtest.yaml`, created from `config/backtest.example.yaml` on first use and git-ignored. They cover session hours and time zone (default 09:30–15:55 New York), contracts per entry, commission per contract per side, slippage in ticks, stop and target in points, and the per-session risk limits. Command-line options override the file for one run.
 

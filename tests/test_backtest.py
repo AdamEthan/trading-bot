@@ -161,6 +161,57 @@ class DatabentoReaderTests(TempDirCase):
             databento.plan_contracts(self.write_csv(rows), "MNQ", only="MNQM7")
 
 
+class MultiFileTests(TempDirCase):
+    """A year downloaded as monthly files must give the same backtest as one big file."""
+
+    def setUp(self):
+        super().setUp()
+        self.days = [(D1, "MNQZ6", "MNQH7"), (D2, "MNQH7", "MNQZ6"), (D3, "MNQH7", "MNQZ6")]
+        self.whole = self.write_csv(make_rows(self.days, price=rising), "whole.ohlcv-1s.csv")
+        parts = self.tmp / "parts"
+        parts.mkdir()
+        self.parts = []
+        for k, day in enumerate(self.days):  # deliberately named so name order != time order
+            path = parts / f"{'cba'[k]}-part.ohlcv-1s.csv"
+            path.write_text(HEADER + "".join(make_rows([day], price=rising)), encoding="utf-8")
+            self.parts.append(path)
+        self.cfg = base_cfg(session={"start": "14:00", "end": "17:00", "flatten_at_end": False},
+                            strategy={"name": "sma_cross", "params": {"fast": 1, "slow": 2}})
+
+    def trades(self, data, name):
+        rows = self.csv_rows(self.run_bt(self.cfg, data, name).run_dir, "trades.csv")
+        return [{k: v for k, v in r.items() if k not in ("fill_id", "order_id")} for r in rows]
+
+    def test_files_folder_and_zip_match_one_file(self):
+        expected = self.trades(self.whole, "whole")
+        self.assertEqual(len({r["symbol"] for r in expected}), 2)  # the roll happens across files
+        self.assertEqual(self.trades(list(reversed(self.parts)), "list"), expected)
+        self.assertEqual(self.trades(self.tmp / "parts", "folder"), expected)
+        zpath = self.tmp / "split-job.zip"
+        with zipfile.ZipFile(zpath, "w") as zf:
+            for part in self.parts:
+                zf.write(part, part.name)
+        self.assertEqual(self.trades(zpath, "zip"), expected)
+
+    def test_verify_checks_every_file(self):
+        res = self.run_bt(self.cfg, self.parts, "multi")
+        run = json.loads((res.run_dir / "run.json").read_text())
+        self.assertEqual(len(run["data_files"]), 3)
+        ok, report = verify_backtest(res.run_dir, self.parts, root_dir=ROOT)
+        self.assertTrue(ok, report)
+        ok, report = verify_backtest(res.run_dir, self.parts[:2], replay=False, root_dir=ROOT)
+        self.assertFalse(ok)
+        self.assertIn("missing, or changed", report)
+
+    def test_overlapping_files_are_refused(self):
+        with self.assertRaisesRegex(databento.DataFileError, "overlap"):
+            list(databento.iter_rows([self.whole, self.parts[1]]))
+        with self.assertRaisesRegex(databento.DataFileError, "candle sizes"):
+            other = self.tmp / "x.ohlcv-1m.csv"
+            other.write_text(HEADER + "".join(make_rows([(D3 + DAY, "MNQH7", "MNQZ6")], step=60)), encoding="utf-8")
+            databento.DataSet([self.parts[0], other]).source_seconds()
+
+
 class BrokerAndRiskTests(unittest.TestCase):
     def test_futures_pnl_commission_and_slippage(self):
         b = SimFuturesBroker(instrument_for("MNQ"), 10_000, 0.5, 1)

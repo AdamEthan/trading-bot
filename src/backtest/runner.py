@@ -122,9 +122,10 @@ class SessionClock:
 
 
 class Backtest:
-    def __init__(self, cfg: dict, data_path: Path, run_dir: Path, *, root_dir: Path, quiet: bool = False):
+    def __init__(self, cfg: dict, data, run_dir: Path, *, root_dir: Path, quiet: bool = False):
+        """`data`: a file, a folder, a list of files, or a databento.DataSet."""
         self.cfg = cfg
-        self.data_path = Path(data_path)
+        self.data = databento.as_dataset(data)
         self.run_dir = Path(run_dir)
         self.run_id = self.run_dir.name
         self.root_dir = root_dir
@@ -135,7 +136,7 @@ class Backtest:
         self.trade_from = date.fromisoformat(d["start"]) if d["start"] else None
         self.trade_to = date.fromisoformat(d["end"]) if d["end"] else None
         self.bar_seconds = int(cfg["bar_seconds"])
-        self.src_seconds = databento.source_seconds(self.data_path)
+        self.src_seconds = self.data.source_seconds()
         if self.bar_seconds % self.src_seconds:
             raise ValueError(f"bar_seconds {self.bar_seconds} is not a multiple of the file's "
                              f"{self.src_seconds}-second candles")
@@ -461,15 +462,15 @@ class Backtest:
     # ---------- main ----------
     def run(self) -> Result:
         t0 = time.time()
-        self.say(f"Reading {self.data_path.name} ...")
-        plan = databento.plan_contracts(self.data_path, self.root, self.cfg["data"]["contract"] or None)
-        data_hash = databento.sha256_file(self.data_path)
+        self.say(f"Reading {self.data.label} ...")
+        plan = databento.plan_contracts(self.data, self.root, self.cfg["data"]["contract"] or None)
+        hashes = self.data.hashes()
         self._open_outputs()
         write_json_atomic(self.run_dir / "run.json", {
             "run_id": self.run_id, "mode": "backtest", "created": utc_iso(time.time()),
             "code_commit": _git_commit(self.root_dir), "python": platform.python_version(),
-            "data_file": self.data_path.name, "data_sha256": data_hash, "source_seconds": self.src_seconds,
-            "data_metadata": databento.read_metadata(self.data_path).get("query", {}),
+            "data_file": self.data.label, "data_files": hashes, "data_sha256": databento.combined_sha256(hashes),
+            "source_seconds": self.src_seconds, "data_metadata": self.data.metadata().get("query", {}),
             "instrument": {"root": self.inst.root, "tick_size": self.inst.tick_size,
                            "point_value": self.inst.point_value},
             "strategy_class": type(self.strategy).__name__, "strategy_params": self.strategy.p,
@@ -482,7 +483,7 @@ class Backtest:
         wanted = set(plan.by_date.values())
         td = databento.TradeDates()
         try:
-            for r in databento.iter_rows(self.data_path, wanted):
+            for r in databento.iter_rows(self.data, wanted):
                 if plan.symbol_for(td(r.ts)) == r.symbol:
                     self.on_row(r)
             if self.bar is not None:

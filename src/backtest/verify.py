@@ -181,7 +181,13 @@ def _num_eq(a: str, b: str) -> bool:
         return False
 
 
-def verify_backtest(run_dir: Path, data: Path | None = None, *, replay: bool = True,
+def _recorded_hashes(run: dict) -> list[dict]:
+    if run.get("data_files"):
+        return run["data_files"]
+    return [{"file": run["data_file"], "sha256": run["data_sha256"]}]  # runs from before multi-file support
+
+
+def verify_backtest(run_dir: Path, data=None, *, replay: bool = True,
                     root_dir: Path | None = None) -> tuple[bool, str]:
     from ..config import ROOT
     root_dir = root_dir or ROOT
@@ -193,17 +199,29 @@ def verify_backtest(run_dir: Path, data: Path | None = None, *, replay: bool = T
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     fills, trips, daily = (_rows(run_dir / n) for n in ("trades.csv", "round_trips.csv", "daily.csv"))
     checks = ledger_check(run, summary, fills, trips, daily)
-    data = Path(data) if data else Path(run["config"]["data"]["file"]).expanduser()
     lines = [f"Verifying backtest {run_dir}", ""]
-    source = Check("Data file is the one the backtest ran on")
-    if not data.is_file():
-        source.fail(f"data file not found: {data}. Pass it with --data")
-        checks.append(source)
-    elif databento.sha256_file(data) != run["data_sha256"]:
-        source.fail(f"{data.name} has a different SHA-256 from the file this backtest used ({run['data_file']})")
+    source = Check("Data files are the ones the backtest ran on")
+    wanted = _recorded_hashes(run)
+    try:
+        data = databento.as_dataset(data or run["config"]["data"]["file"])
+        given = data.hashes()
+    except databento.DataFileError as exc:
+        data, given = None, []
+        source.fail(f"{exc}. Pass the data with --data")
+    if data is not None and sorted(h["sha256"] for h in given) != sorted(h["sha256"] for h in wanted):
+        known = {h["sha256"] for h in wanted}
+        extra = [h["file"] for h in given if h["sha256"] not in known]
+        missing = [h["file"] for h in wanted if h["sha256"] not in {g["sha256"] for g in given}]
+        if extra:
+            source.fail(f"not used by this backtest (different SHA-256): {', '.join(extra)}")
+        if missing:
+            source.fail(f"missing, or changed since the backtest: {', '.join(missing)}")
+        if not extra and not missing:
+            source.fail("the same file was passed more than once")
+    if data is None or not source.passed:
         checks.append(source)
     else:
-        source.note(f"{data.name}, sha256 {run['data_sha256'][:16]}…")
+        source.note(f"{data.label}, sha256 {run['data_sha256'][:16]}…")
         checks.append(source)
         checks += data_checks(data, run, fills)
         if replay:

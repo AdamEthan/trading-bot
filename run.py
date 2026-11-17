@@ -118,7 +118,7 @@ def cmd_verify(args) -> int:
         run_dir = LOGS / run_dir
     if _is_backtest(run_dir):
         from src.backtest.verify import verify_backtest
-        ok, report = verify_backtest(run_dir, data=Path(args.data) if args.data else None)
+        ok, report = verify_backtest(run_dir, data=[Path(d) for d in args.data] if args.data else None)
         print(report)
         return 0 if ok else 2
     ok, report = verify(run_dir, online=not args.offline)
@@ -147,7 +147,7 @@ def cmd_backtest(args) -> int:
         print(f"Created {args.backtest_config} from the example.")
     overrides: dict = {"data": {}, "strategy": {}}
     if args.data:
-        overrides["data"]["file"] = str(args.data)
+        overrides["data"]["file"] = [str(d) for d in args.data] if len(args.data) > 1 else str(args.data[0])
     for key in ("contract", "start", "end"):
         if getattr(args, key):
             overrides["data"][key] = getattr(args, key)
@@ -168,9 +168,12 @@ def cmd_backtest(args) -> int:
     if not cfg["data"]["file"]:
         print("No data file. Pass one with --data, or set data.file in config/backtest.yaml.")
         return 1
-    data = Path(cfg["data"]["file"]).expanduser()
-    if not data.is_absolute() and not data.exists():
-        data = ROOT / data
+    def where(text: str) -> Path:
+        path = Path(text).expanduser()
+        return ROOT / path if not path.is_absolute() and not path.exists() else path
+
+    files = cfg["data"]["file"] if isinstance(cfg["data"]["file"], list) else [cfg["data"]["file"]]
+    data = [where(str(f)) for f in files]
     name = f"{datetime.now().strftime('%Y-%m-%d_%H%M%S')}_{cfg['strategy']['name']}"
     run_dir = LOGS / "backtests" / name
     try:
@@ -237,9 +240,10 @@ def main(argv=None) -> int:
     p_verify = sub.add_parser("verify", help="recheck a run's logs")
     p_verify.add_argument("run_dir", help="folder under logs/, e.g. logs/2026-11-14_090000")
     p_verify.add_argument("--offline", action="store_true", help="skip the exchange price checks")
-    p_verify.add_argument("--data", help="backtests: the data file it ran on (default: the path it was run with)")
+    p_verify.add_argument("--data", nargs="+", help="backtests: the data it ran on (default: the paths it was run with)")
     p_bt = sub.add_parser("backtest", help="test a strategy on historical futures data")
-    p_bt.add_argument("--data", type=Path, help="Databento OHLCV download: .zip, .csv.zst or .csv")
+    p_bt.add_argument("--data", type=Path, nargs="+",
+                      help="Databento OHLCV download(s): .zip, .csv.zst or .csv files, or a folder of them")
     p_bt.add_argument("--backtest-config", type=Path, default=ROOT / "config" / "backtest.yaml",
                       help="backtest settings (default: config/backtest.yaml)")
     p_bt.add_argument("--strategy", help="strategy name, overriding the config (sma_cross, rsi_reversion, example)")

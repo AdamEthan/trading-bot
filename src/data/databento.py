@@ -1,8 +1,10 @@
 """Read Databento OHLCV downloads (CSV) for CME futures.
 
 Accepts the batch download as Databento delivers it: the .zip, the
-.csv.zst inside it, or a plain .csv. Binary DBN files are not supported;
-request CSV encoding when downloading.
+.csv.zst inside it, or a plain .csv. Several files (say a year split into
+months) can be passed together, or as a folder, and are read as one
+time-ordered stream. Binary DBN files are not supported; request CSV
+encoding when downloading.
 
 Rows look like:
   ts_event,rtype,publisher_id,instrument_id,open,high,low,close,volume,symbol
@@ -65,15 +67,16 @@ def is_outright(symbol: str) -> bool:
     return "-" not in symbol and bool(OUTRIGHT.match(symbol))
 
 
-def _csv_member(zf: zipfile.ZipFile) -> str:
-    names = [n for n in zf.namelist() if n.endswith((".csv", ".csv.zst"))]
+DATA_SUFFIXES = (".zip", ".csv", ".csv.zst")
+
+
+def _csv_members(zf: zipfile.ZipFile, name: str) -> list[str]:
+    names = sorted(n for n in zf.namelist() if n.endswith((".csv", ".csv.zst")))
     if not names:
         dbn = [n for n in zf.namelist() if ".dbn" in n]
         hint = " It holds DBN files; download again with CSV encoding." if dbn else ""
-        raise DataFileError(f"No .csv or .csv.zst file inside the zip.{hint}")
-    if len(names) > 1:
-        raise DataFileError(f"The zip holds several data files ({', '.join(names)}); unzip it and pass one.")
-    return names[0]
+        raise DataFileError(f"No .csv or .csv.zst file inside {name}.{hint}")
+    return names
 
 
 def _zstd_text(raw) -> io.TextIOBase:
@@ -84,24 +87,108 @@ def _zstd_text(raw) -> io.TextIOBase:
     return io.TextIOWrapper(zstandard.ZstdDecompressor().stream_reader(raw), encoding="utf-8", newline="")
 
 
-def open_text(path: Path) -> io.TextIOBase:
-    """A text stream over the CSV, whatever it is wrapped in. Caller closes it."""
-    path = Path(path)
-    if not path.is_file():
-        raise DataFileError(f"Data file not found: {path}")
+@dataclass(frozen=True)
+class Part:
+    """One CSV stream: a file on disk, or one member of a zip."""
+
+    path: Path
+    member: str | None = None
+
+    @property
+    def label(self) -> str:
+        return f"{self.path.name}:{Path(self.member).name}" if self.member else self.path.name
+
+
+def _check_type(path: Path) -> None:
     name = path.name.lower()
-    if name.endswith(".zip"):
-        zf = zipfile.ZipFile(path)
-        member = _csv_member(zf)
-        raw = zf.open(member)
-        return _zstd_text(raw) if member.endswith(".zst") else io.TextIOWrapper(raw, encoding="utf-8", newline="")
     if ".dbn" in name:
-        raise DataFileError("DBN (binary) files are not supported; download again with CSV encoding.")
-    if name.endswith(".zst"):
-        return _zstd_text(open(path, "rb"))
-    if name.endswith(".csv"):
-        return open(path, encoding="utf-8", newline="")
-    raise DataFileError(f"Unrecognised data file type: {path.name} (expected .zip, .csv.zst or .csv)")
+        raise DataFileError(f"{path.name}: DBN (binary) files are not supported; download again with CSV encoding.")
+    if not name.endswith(DATA_SUFFIXES):
+        raise DataFileError(f"Unrecognised data file type: {path.name} (expected .zip, .csv.zst or .csv)")
+
+
+def open_text(source) -> io.TextIOBase:
+    """A text stream over one CSV (a Part, or a path to a single-CSV file). Caller closes it."""
+    part = source if isinstance(source, Part) else None
+    if part is None:
+        parts = DataSet(source).parts
+        if len(parts) != 1:
+            raise DataFileError(f"{Path(source).name} holds {len(parts)} data files; read it as a DataSet")
+        part = parts[0]
+    if part.member:
+        raw = zipfile.ZipFile(part.path).open(part.member)
+        return _zstd_text(raw) if part.member.endswith(".zst") else io.TextIOWrapper(raw, encoding="utf-8", newline="")
+    if part.path.name.lower().endswith(".zst"):
+        return _zstd_text(open(part.path, "rb"))
+    return open(part.path, encoding="utf-8", newline="")
+
+
+class DataSet:
+    """One or more Databento downloads read as a single time-ordered stream.
+
+    Pass a file, a folder (every .zip / .csv.zst / .csv in it), or a list of
+    either. A year split into monthly files is read month after month; files
+    whose dates overlap are refused.
+    """
+
+    def __init__(self, sources):
+        items = list(sources) if isinstance(sources, (list, tuple)) else [sources]
+        if not items:
+            raise DataFileError("No data files given")
+        files: list[Path] = []
+        for item in items:
+            path = Path(item).expanduser()
+            if path.is_dir():
+                found = sorted(c for c in path.iterdir() if c.is_file() and c.name.lower().endswith(DATA_SUFFIXES))
+                if not found:
+                    raise DataFileError(f"No .zip, .csv.zst or .csv files in the folder {path}")
+                files += found
+            elif path.is_file():
+                files.append(path)
+            else:
+                raise DataFileError(f"Data file not found: {path}")
+        seen, self.files = set(), []
+        for f in files:
+            if f.resolve() not in seen:
+                seen.add(f.resolve())
+                self.files.append(f)
+        parts: list[Part] = []
+        for f in self.files:
+            _check_type(f)
+            if f.name.lower().endswith(".zip"):
+                with zipfile.ZipFile(f) as zf:
+                    parts += [Part(f, m) for m in _csv_members(zf, f.name)]
+            else:
+                parts.append(Part(f))
+        self.parts = sorted(parts, key=_first_ts)
+
+    @property
+    def label(self) -> str:
+        if len(self.files) == 1:
+            return self.files[0].name
+        return f"{len(self.files)} files ({self.files[0].name} ... {self.files[-1].name})"
+
+    def hashes(self) -> list[dict]:
+        return sorted(({"file": f.name, "sha256": sha256_file(f)} for f in self.files), key=lambda d: d["file"])
+
+    def source_seconds(self) -> int:
+        sizes = {source_seconds(f) for f in self.files}
+        if len(sizes) > 1:
+            raise DataFileError(f"The files mix candle sizes ({', '.join(f'{s}s' for s in sorted(sizes))})")
+        return sizes.pop()
+
+    def metadata(self) -> dict:
+        return read_metadata(self.files[0])
+
+
+def as_dataset(source) -> DataSet:
+    return source if isinstance(source, DataSet) else DataSet(source)
+
+
+def combined_sha256(hashes: list[dict]) -> str:
+    """One fingerprint for a set of files: equal whatever order they were given in."""
+    text = "\n".join(f"{h['sha256']}  {h['file']}" for h in sorted(hashes, key=lambda d: d["sha256"]))
+    return hashlib.sha256(text.encode()).hexdigest() if len(hashes) > 1 else hashes[0]["sha256"]
 
 
 def read_metadata(path: Path) -> dict:
@@ -118,15 +205,17 @@ def read_metadata(path: Path) -> dict:
     return {}
 
 
-def source_seconds(path: Path) -> int:
-    """Candle size of the file: from metadata.json, else from the file name, else 1."""
-    schema = (read_metadata(path).get("query") or {}).get("schema", "")
+def source_seconds(source) -> int:
+    """Candle size: from metadata.json, else from the file name, else 1."""
+    if isinstance(source, (DataSet, list, tuple)) or Path(source).is_dir():
+        return as_dataset(source).source_seconds()
+    schema = (read_metadata(source).get("query") or {}).get("schema", "")
     if schema in SCHEMA_SECONDS:
         return SCHEMA_SECONDS[schema]
     if schema:
         raise DataFileError(f"Schema {schema!r} is not OHLCV candles; download ohlcv-1s or ohlcv-1m.")
     for key, seconds in SCHEMA_SECONDS.items():
-        if key in Path(path).name:
+        if key in Path(source).name:
             return seconds
     return 1
 
@@ -154,33 +243,61 @@ def _price(text: str) -> float:
     return int(text) / 1e9  # pretty_px off: fixed-point integer, 1e-9 units
 
 
-def iter_rows(path: Path, symbols: set[str] | None = None) -> Iterator[Row]:
-    """Every row in file order (time order), optionally only these symbols."""
-    parse_ts = _TsParser()
-    with open_text(path) as fh:
+NEED = ("ts_event", "open", "high", "low", "close", "volume", "symbol")
+
+
+def _columns(header: list[str], label: str) -> tuple[int, ...]:
+    missing = [c for c in NEED if c not in header]
+    if missing:
+        raise DataFileError(f"{label} is missing column(s) {', '.join(missing)}. "
+                            "Download OHLCV as CSV with map_symbols on.")
+    return tuple(header.index(c) for c in NEED)
+
+
+def _first_ts(part: Part) -> int:
+    with open_text(part) as fh:
         reader = csv.reader(fh)
-        try:
-            header = next(reader)
-        except StopIteration:
-            raise DataFileError(f"{Path(path).name} is empty") from None
-        need = ("ts_event", "open", "high", "low", "close", "volume", "symbol")
-        missing = [c for c in need if c not in header]
-        if missing:
-            raise DataFileError(f"{Path(path).name} is missing column(s) {', '.join(missing)}. "
-                                "Download OHLCV as CSV with map_symbols on.")
-        i = {c: header.index(c) for c in need}
-        its, io_, ih, il, ic, iv, isym = (i[c] for c in need)
-        for line_no, p in enumerate(reader, start=2):
-            if not p:
-                continue
-            sym = p[isym]
-            if symbols is not None and sym not in symbols:
-                continue
-            try:
-                yield Row(parse_ts(p[its]), _price(p[io_]), _price(p[ih]), _price(p[il]), _price(p[ic]),
-                          int(p[iv]), sym)
-            except (ValueError, IndexError) as exc:
-                raise DataFileError(f"{Path(path).name} line {line_no}: {exc}") from None
+        header = next(reader, None)
+        if header is None:
+            raise DataFileError(f"{part.label} is empty")
+        its = _columns(header, part.label)[0]
+        for p in reader:
+            if p:
+                return _TsParser()(p[its])
+    raise DataFileError(f"{part.label} has a header but no rows")
+
+
+def iter_rows(source, symbols: set[str] | None = None) -> Iterator[Row]:
+    """Every row in time order across all files, optionally only these symbols."""
+    parse_ts = _TsParser()
+    prev_last, prev_label = None, ""
+    for part in as_dataset(source).parts:
+        with open_text(part) as fh:
+            reader = csv.reader(fh)
+            header = next(reader, None)
+            if header is None:
+                raise DataFileError(f"{part.label} is empty")
+            its, io_, ih, il, ic, iv, isym = _columns(header, part.label)
+            first, last_text = True, None
+            for line_no, p in enumerate(reader, start=2):
+                if not p:
+                    continue
+                last_text = p[its]
+                if first:
+                    first = False
+                    if prev_last is not None and parse_ts(last_text) <= prev_last:
+                        raise DataFileError(f"{part.label} starts at or before the end of {prev_label}; "
+                                            "the files overlap. Pass each date range once.")
+                sym = p[isym]
+                if symbols is not None and sym not in symbols:
+                    continue
+                try:
+                    yield Row(parse_ts(last_text), _price(p[io_]), _price(p[ih]), _price(p[il]), _price(p[ic]),
+                              int(p[iv]), sym)
+                except (ValueError, IndexError) as exc:
+                    raise DataFileError(f"{part.label} line {line_no}: {exc}") from None
+            if last_text is not None:
+                prev_last, prev_label = parse_ts(last_text), part.label
 
 
 def trade_date(ts: int) -> date:
@@ -226,8 +343,8 @@ class ContractPlan:
         }
 
 
-def plan_contracts(path: Path, root: str, only: str | None = None) -> ContractPlan:
-    """First pass over the file: volume per outright per trade date, then pick the front month.
+def plan_contracts(path, root: str, only: str | None = None) -> ContractPlan:
+    """First pass over the data (a file, folder, list or DataSet): volume per outright per trade date, then pick the front month.
 
     `only` forces one contract (e.g. MNQZ6) for the whole file.
     """
@@ -244,7 +361,7 @@ def plan_contracts(path: Path, root: str, only: str | None = None) -> ContractPl
             continue
         volumes[td(r.ts)][r.symbol] += r.volume
     if not volumes:
-        raise DataFileError(f"No {root} outright contracts found in {Path(path).name}")
+        raise DataFileError(f"No {root} outright contracts found in {as_dataset(path).label}")
     dates = sorted(volumes)
     by_date: dict[date, str] = {}
     for k, d in enumerate(dates):
